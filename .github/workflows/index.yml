@@ -1,0 +1,33 @@
+name: 更新文档总览
+
+on:
+  push:
+    branches: [main]
+    paths: ["docs/**", "tools/**", "README.md", ".github/workflows/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  index:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # 需要完整历史，才能取到每篇文档的最后提交日期
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pyyaml
+      - run: python3 tools/check_docs.py
+      - run: python3 tools/build_index.py
+      - name: 有变化就提交
+        run: |
+          if [ -n "$(git status --porcelain README.md docs/INDEX.md)" ]; then
+            git config user.name  "docs-bot"
+            git config user.email "docs-bot@users.noreply.github.com"
+            git add README.md docs/INDEX.md
+            git commit -m "chore: 自动更新文档总览"
+            git push
+          fi
