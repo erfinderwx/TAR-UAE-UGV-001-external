@@ -1,5 +1,6 @@
 """Check the sample's metadata, stable document names and relative links."""
 import json
+import hashlib
 import re
 import sys
 from pathlib import Path
@@ -59,6 +60,14 @@ for path in sorted(ROOT.rglob('*.md')):
 for path in ROOT.rglob('*'):
     if path.is_file() and '.git' not in path.relative_to(ROOT).parts and path.stat().st_size > 50_000_000:
         ERRORS.append(f'{path.relative_to(ROOT)}: exceeds the sample 50 MB limit')
+manifest_path = ROOT / 'sources/records/source-manifest.json'
+if manifest_path.exists():
+    for item in json.loads(manifest_path.read_text(encoding='utf-8'))['files']:
+        original = (ROOT / item['path']).resolve()
+        if not original.is_relative_to(ROOT) or not original.is_file():
+            ERRORS.append(f"Missing archived original: {item['path']}")
+        elif hashlib.sha256(original.read_bytes()).hexdigest() != item['sha256']:
+            ERRORS.append(f"Archived original checksum differs: {item['path']}")
 report = {'documents': checked, 'errors': ERRORS}
 print(json.dumps(report, ensure_ascii=False, indent=2))
 sys.exit(bool(ERRORS))
