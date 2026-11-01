@@ -1,18 +1,48 @@
-name: 检查文件头
+name: 检查文档纪律
 
 on:
   pull_request:
-    paths: ["docs/**", "tools/**", "README.md", "使用说明.md"]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-check-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: pip install pyyaml
       - run: python3 tools/build_index.py --check
-
       - run: python3 tools/check_docs.py
+      - name: 检查版本、确认依据和原件保留
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          comparison_base=""
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            comparison_base="$PR_BASE_SHA"
+          elif [ "$EVENT_NAME" = "push" ] && [ "$PUSH_BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then
+            comparison_base="$PUSH_BEFORE_SHA"
+          fi
+          if [ -n "$comparison_base" ]; then
+            python3 tools/check_changes.py --base "$comparison_base"
+          else
+            python3 tools/check_changes.py
+          fi
+      - name: 检查器回归测试（临时仓库）
+        run: python3 -m unittest discover -s tools -p 'test_check_changes.py' -v
