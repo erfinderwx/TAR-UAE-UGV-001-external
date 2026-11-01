@@ -3,11 +3,14 @@ name: 更新文档总览
 on:
   push:
     branches: [main]
-    paths: ["docs/**", "tools/**", "README.md", ".github/workflows/**"]
   workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: docs-index-main
+  cancel-in-progress: false
 
 jobs:
   index:
@@ -15,12 +18,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: main
           fetch-depth: 0          # 需要完整历史，才能取到每篇文档的最后提交日期
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: pip install pyyaml
+      - run: python3 tools/build_index.py --check
       - run: python3 tools/check_docs.py
+      - name: 更新索引前检查本次变更
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          if [ "$EVENT_NAME" = "push" ] && [ -n "$PUSH_BEFORE_SHA" ] && [ "$PUSH_BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then
+            python3 tools/check_changes.py --base "$PUSH_BEFORE_SHA"
+          else
+            python3 tools/check_changes.py
+          fi
       - run: python3 tools/build_index.py
       - name: 有变化就提交
         run: |
@@ -29,5 +44,7 @@ jobs:
             git config user.email "docs-bot@users.noreply.github.com"
             git add README.md docs/INDEX.md
             git commit -m "chore: 自动更新文档总览"
-            git push
+            # If main advanced during this run, stop on the non-fast-forward
+            # failure. A queued run reads the newer main; never force-push.
+            git push origin HEAD:main
           fi
